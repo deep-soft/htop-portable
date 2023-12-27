@@ -107,6 +107,7 @@ jobs:
           popd
 
       - name: Setup ccache
+        continue-on-error: true
         uses: deep-soft/cache@v3
         with:
           path: ${{ github.workspace }}/.ccache
@@ -115,6 +116,7 @@ jobs:
             ccache-${{ matrix.arch }}-
 
       - name: Setup Alpine Linux for ${{ matrix.arch }}
+        continue-on-error: true
         uses: deep-soft/setup-alpine@v1
         #with: branch: v3.16 or latest-stable
         with:
@@ -127,12 +129,14 @@ jobs:
           shell-name: alpine.sh
 
       - name: Add extra build-deps to chroot
+        continue-on-error: true
         shell: alpine.sh --root {0}
         run: |
           apk add makeself --repository=https://dl-cdn.alpinelinux.org/alpine/edge/testing
           apk add quilt --repository=https://dl-cdn.alpinelinux.org/alpine/edge/community
 
       - name: Build htop inside chroot
+        continue-on-error: true
         working-directory: ./htop
         env:
           DATE: ${{ env.client_payload_date }}
@@ -151,6 +155,7 @@ jobs:
           pwd
 
       - name: Archive Release
+        continue-on-error: true
         uses: deep-soft/zip-release@v2
         with:
           type: 'zip'
@@ -160,6 +165,7 @@ jobs:
           # archive name is ${{ env.ZIP_RELEASE_ARCHIVE }}
 
       - name: Upload artifact
+        continue-on-error: true
         uses: deep-soft/upload-artifact@v3
         with:
           name: htop-${{ matrix.arch }}
@@ -177,6 +183,29 @@ jobs:
           artifacts: |
             ./**/htop*.tar
             ${{ env.ZIP_RELEASE_ARCHIVE }}
+
+# zip release begin
+      - name: Create Zip Archive Release - ALL
+        continue-on-error: true
+        uses: deep-soft/zip-release@v2
+        with:
+          type: 'zip'
+          filename: '${{  env.PROG_NAME }}-${{ matrix.arch }}-ALL.zip'
+          directory: '.'
+          exclusions: ''
+          recursive_exclusions: ''
+          path: '.'
+          env_variable: 'ZIP_RELEASE_ARCHIVE'
+          # archive name is ${{ env.ZIP_RELEASE_ARCHIVE }}
+
+      - name: Publish
+        continue-on-error: true
+        uses: deep-soft/action-gh-release@v1
+        with:
+          tag_name: ${{ env.TAG_NAME }}-${{ env.TAG_VERSION }}
+          files: |
+            ${{ env.ZIP_RELEASE_ARCHIVE }}
+# zip release end
 
   release:
     if: ${{ inputs.release_all }}
