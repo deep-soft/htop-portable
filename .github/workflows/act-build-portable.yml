@@ -125,7 +125,7 @@ jobs:
           packages: >
             git bash build-base ccache cmake coreutils findutils gawk grep libarchive-dev libnfs-dev libssh-dev
             libtree libxi-dev linux-headers neon-dev ninja-is-really-ninja patchelf pcre-dev perl samba-dev tar
-            uchardet-dev wget xerces-c-dev xz autoreconf autoconf ncurses-dev hwloc libnl3 lm-sensors-dev libcap2
+            uchardet-dev wget xerces-c-dev xz automake ncurses-dev hwloc libnl3 lm-sensors-dev libcap2
           shell-name: alpine.sh
 
       - name: Add extra build-deps to chroot
