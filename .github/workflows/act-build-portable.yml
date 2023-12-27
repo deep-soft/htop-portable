@@ -144,9 +144,11 @@ jobs:
           STANDALONE: true
         shell: alpine.sh {0}
         run: |
+          pwd
           export VERSION=${TAG}.git${DATE}
           export PKG_NAME=htop_${VERSION}_${ARCH}
           bash -x ${GITHUB_WORKSPACE}/build_htop.sh
+          pwd
 
       - name: Archive Release
         uses: deep-soft/zip-release@v2
