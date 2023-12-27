@@ -1,0 +1,209 @@
+# 2023-12-27 12:30
+# 
+# 
+name: act-build - portable
+run-name: act-build - portable
+
+env:
+   client_payload_name: 'htop'
+   client_payload_tag: '3.3.0'
+   client_payload_sha: 'e6685a9'
+   client_payload_repo: 'deep-soft/htop'
+   client_payload_date: '20231227'
+   client_payload_url: 'deep-soft/htop'
+   client_payload_message: 'htop portable'
+   TAG_NAME:      "htop"
+   TAG_VERSION:   "htop-v3.3.0"
+   TAG_BUILD:     "-b"
+   TAG_REF:       "0000000"
+   PROG_NAME:     "htop"
+   PROG_VERSION:  "v3.3.0"
+   VERSION:       "3.3.0"
+
+on:
+  workflow_dispatch:
+    inputs:
+      # if: ${{ inputs.release_all }}
+      release_all:
+        description: Release all
+        type: boolean
+        required: true
+        default: false
+      SED_STUFF:
+        description: SED_STUFF
+        type: boolean
+        default: false
+        required: true
+      SED_STUFF_PARAMS:
+        description: SED_STUFF_PARAMS
+        default: "filename_to_cat"
+        required: true
+      DEBUG_MODE_1:
+        description: DEBUG_MODE_1
+        default: "N"
+        required: true
+      DEBUG_MODE_2:
+        description: DEBUG_MODE_2
+        default: "N"
+        required: true
+
+jobs:
+  build-chroot:
+    name: build ${{ matrix.arch }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+          arch: [x86_64, x86, armhf, armv7]
+          os: [ubuntu-latest]
+
+    steps:
+      - name: Checkout
+        uses: deep-soft/checkout@v3
+
+      - name: Checkout
+        id: id_check_htop
+        uses: deep-soft/checkout@v3
+        with:
+          repository: ${{ env.client_payload_repo }}
+          path: htop
+
+      - name: Checkout get SHA and version
+        shell: bash
+        run: |
+          pushd htop
+          _htop_sha_=$(git log -1 --format='%H')
+          _date_=$(date +%Y%m%d)
+          echo "client_payload_date=$_date_" >> $GITHUB_ENV
+
+          _ref_org_=${{ env.TAG_REF }}
+          _ref_len_="${#_ref_org_}"
+          _htop_sha_short_=$(echo ${_htop_sha_::$_ref_len_})
+
+          echo "TAG_REF=$_htop_sha_short_" >> $GITHUB_ENV
+          echo "client_payload_sha=$_htop_sha_short_" >> $GITHUB_ENV
+
+          _version_=$(grep AC_INIT configure.ac  | awk -F "," '{print $2}' | awk -F "]" '{print $1}' | tr -d "[")
+          echo "VERSION=$_version_" >> $GITHUB_ENV
+          echo "PROG_VERSION=v$_version_" >> $GITHUB_ENV
+          echo "client_payload_tag=v$_version_" >> $GITHUB_ENV
+
+          _build_=${{ env.TAG_BUILD }}-$_date_-$_htop_sha_short_
+
+          echo "TAG_BUILD=$_build_" >> $GITHUB_ENV
+          echo "WORK_DIR=$(pwd)" >> $GITHUB_ENV
+          echo "TAG_DATE=$_date_" >> $GITHUB_ENV
+
+      - name: Checkout and sed-stuff
+        if: ${{ inputs.SED_STUFF }}
+        continue-on-error: true
+        shell: bash
+        env:
+          DEBUG_MODE_1: ${{ inputs.DEBUG_MODE_1 }}
+          DEBUG_MODE_2: ${{ inputs.DEBUG_MODE_2 }}
+        run: |
+          pushd htop
+          bash bins/sed-stuff.sh "_" "${{ inputs.SED_STUFF_PARAMS }}"
+          popd
+
+      - name: Setup ccache
+        uses: deep-soft/cache@v3
+        with:
+          path: ${{ github.workspace }}/.ccache
+          key: ccache-${{ matrix.arch }}-${{ env.client_payload_sha }}
+          restore-keys: |
+            ccache-${{ matrix.arch }}-
+
+      - name: Setup Alpine Linux for ${{ matrix.arch }}
+        uses: deep-soft/setup-alpine@v1
+        #with: branch: v3.16 or latest-stable
+        with:
+          branch: v3.18
+          arch: ${{ matrix.arch }}
+          packages: >
+            git bash build-base ccache cmake coreutils findutils gawk grep libarchive-dev libnfs-dev libssh-dev
+            libtree libxi-dev linux-headers neon-dev ninja-is-really-ninja patchelf pcre-dev perl samba-dev tar
+            uchardet-dev wget xerces-c-dev xz libncursesw5-dev libhwloc-dev libnl-3-dev libnl-genl-3-dev libsensors4-dev libcap-dev
+          shell-name: alpine.sh
+
+      - name: Add extra build-deps to chroot
+        shell: alpine.sh --root {0}
+        run: |
+          apk add makeself --repository=https://dl-cdn.alpinelinux.org/alpine/edge/testing
+          apk add quilt --repository=https://dl-cdn.alpinelinux.org/alpine/edge/community
+
+      - name: Build htop inside chroot
+        working-directory: ./htop
+        env:
+          DATE: ${{ env.client_payload_date }}
+          SHA:  ${{ env.client_payload_sha }}
+          TAG:  ${{ env.client_payload_tag }}
+          ARCH: ${{ matrix.arch }}
+          CCACHE_DIR: ${{ github.workspace }}/.ccache
+          DESTDIR: ${{ github.workspace }}/AppDir
+          STANDALONE: true
+        shell: alpine.sh {0}
+        run: |
+          export VERSION=${TAG}.git${DATE}
+          export PKG_NAME=htop_${VERSION}_${ARCH}
+          bash -x ${GITHUB_WORKSPACE}/build_htop.sh
+
+      - name: Archive Release
+        uses: deep-soft/zip-release@v2
+        with:
+          type: 'zip'
+          filename: 'htop-${{ matrix.arch }}'
+          directory: 'htop/build/install'
+          path: '.'
+          # archive name is ${{ env.ZIP_RELEASE_ARCHIVE }}
+
+      - name: Upload artifact
+        uses: deep-soft/upload-artifact@v3
+        with:
+          name: htop-${{ matrix.arch }}
+          path: |
+            ./**/htop*.tar*
+          if-no-files-found: error
+
+      - name: Publish Release
+        continue-on-error: true
+        uses: deep-soft/release-action@v1
+        with:
+          draft: ${{ env.DRAFT }}
+          tag: ${{ env.client_payload_name }}-${{ env.client_payload_tag }}
+          allowUpdates: true
+          artifacts: |
+            ./**/htop*.tar
+            ${{ env.ZIP_RELEASE_ARCHIVE }}
+
+  release:
+    if: ${{ inputs.release_all }}
+    name: Upload release all
+    needs: [build-chroot]
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download artifacts
+        uses: deep-soft/download-artifact@v3
+
+      - name: Store .tar files
+        id: store
+        uses: andelf/nightly-release@main
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          URL: ${{ env.client_payload_url }}
+          MESSAGE: ${{ env.client_payload_message }}
+        with:
+          prerelease: false
+          tag_name: latest
+          name: ${{ env.client_payload_date }}
+          body: |
+            ${{ env.URL }}: ${{ env.MESSAGE }}
+          files: |
+            ./**/htop_*.run.tar
+
+      - name: Delete workflow runs
+        uses: Mattraks/delete-workflow-runs@v2
+        continue-on-error: true
